@@ -5,4 +5,5 @@
 demo formation git
 premier jour
 
-conflit depuis le workspace
+* conflit depuis le workspace
+* modif pour provoquer un conflit
