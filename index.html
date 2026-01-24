@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32-C3 Config</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        input { margin: 10px; padding: 8px; width: 200px; }
+        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h2>Configuration Bluetooth</h2>
+	<form>
+    <input type="text" id="ssid" placeholder="Nom du Wi-Fi (SSID)">
+    <input type="password" id="pass" placeholder="Mot de passe">
+    <button onclick="sendConfig()">Envoyer à l'ESP32</button>
+	</form>
+    <p id="status"></p>
+
+    <script>
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+
+		async function sendConfig() {
+			const log = (msg) => {
+				document.getElementById('status').innerText += "\n" + msg;
+				console.log(msg);
+			};
+
+			try {
+				log("Demande de périphérique...");
+				const device = await navigator.bluetooth.requestDevice({
+					filters: [{ name: 'ESP32-C3-Config' }],
+					optionalServices: [SERVICE_UUID]
+				});
+
+				log("Connexion au serveur GATT...");
+				const server = await device.gatt.connect();
+
+				log("Récupération du service...");
+				const service = await server.getPrimaryService(SERVICE_UUID);
+
+				log("Récupération de la caractéristique...");
+				const characteristic = await service.getCharacteristic(CHAR_UUID);
+
+				log("Tentative d'écriture...");
+				const data = document.getElementById('ssid').value + ";" + document.getElementById('pass').value;
+				const encoder = new TextEncoder();
+				
+				// On utilise writeValueWithResponse pour être sûr que l'ESP a reçu
+				await characteristic.writeValueWithResponse(encoder.encode(data));
+				
+				log("SUCCÈS ! Données envoyées.");
+			} catch (error) {
+				log("ERREUR : " + error);
+			}
+		}		
+    </script>
+</body>
+</html>
