@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Provisioning WiFi ESP32-C3</title>
+</head>
+<body>
+  <button id="connect">Connecter & scanner</button>
+  <div id="status">Non connecté</div>
+
+  <h3>Choix du WiFi</h3>
+  <form id="wifiForm">
+    <label>SSID:
+      <select id="ssidSelect"></select>
+    </label><br>
+    <label>Mot de passe:
+      <input type="password" id="wifiPass" />
+    </label><br>
+    <button type="submit">Envoyer credentials</button>
+  </form>
+
+  <pre id="log"></pre>
+
+<script>
+const SERVICE_UUID   = '12345678-1234-5678-1234-56789abcdef0';
+const SSID_LIST_UUID = '12345678-1234-5678-1234-56789abcdef1';
+const WIFI_CRED_UUID = '12345678-1234-5678-1234-56789abcdef2';
+
+let ssidListChar, wifiCredChar;
+
+const statusEl = document.getElementById('status');
+const logEl    = document.getElementById('log');
+const ssidSelect = document.getElementById('ssidSelect');
+
+document.getElementById('connect').addEventListener('click', async () => {
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }]
+    });
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+
+    ssidListChar = await service.getCharacteristic(SSID_LIST_UUID);
+    wifiCredChar = await service.getCharacteristic(WIFI_CRED_UUID);
+
+    // notifications de liste SSID
+    await ssidListChar.startNotifications();
+    ssidListChar.addEventListener('characteristicvaluechanged', event => {
+      const dv = event.target.value;
+      const text = new TextDecoder().decode(dv);
+      logEl.textContent += 'SSID_LIST: ' + text + '\n';
+      try {
+        const arr = JSON.parse(text);
+        ssidSelect.innerHTML = '';
+        arr.forEach(ap => {
+          const opt = document.createElement('option');
+          opt.value = ap.ssid;
+          opt.textContent = `${ap.ssid} (${ap.rssi} dBm)`;
+          ssidSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    // éventuellement lire une première fois la valeur
+    const initial = await ssidListChar.readValue();
+    const initialText = new TextDecoder().decode(initial);
+    if (initialText) {
+      logEl.textContent += 'Initial SSID_LIST: ' + initialText + '\n';
+    }
+
+    statusEl.textContent = 'Connecté à ' + device.name;
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = 'Erreur: ' + e;
+  }
+});
+
+// Envoi credentials
+document.getElementById('wifiForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!wifiCredChar) return;
+
+  const ssid = ssidSelect.value;
+  const pass = document.getElementById('wifiPass').value;
+
+  const obj = { ssid, pass };
+  const encoder = new TextEncoder();
+  const buf = encoder.encode(JSON.stringify(obj));
+
+  try {
+    await wifiCredChar.writeValue(buf);
+    logEl.textContent += 'Credentials envoyés pour ' + ssid + '\n';
+  } catch (e) {
+    console.error(e);
+    logEl.textContent += 'Erreur write: ' + e + '\n';
+  }
+});
+</script>
+</body>
+</html>
