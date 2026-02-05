@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Provisioning WiFi ESP32-C3</title>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>  
 </head>
 <body>
   <button id="connect">Connecter & scanner</button>
@@ -18,6 +20,14 @@
     </label><br>
     <button type="submit">Envoyer credentials</button>
   </form>
+<!-- Ajoute dans le <body>, par exemple sous le formulaire WiFi -->
+<h3>Scanner un QR code</h3>
+<button id="startScan">Démarrer le scan</button>
+<button id="stopScan" disabled>Arrêter</button>
+<br>
+<video id="qrVideo" style="max-width:300px;" autoplay playsinline></video>
+<canvas id="qrCanvas" style="display:none;"></canvas>
+<div id="qrResult">Aucun QR scanné</div>
 
   <pre id="log"></pre>
 
@@ -97,6 +107,131 @@ document.getElementById('wifiForm').addEventListener('submit', async (e) => {
     logEl.textContent += 'Erreur write: ' + e + '\n';
   }
 });
+
+
+// --- QR CODE SCAN ---
+const qrVideo  = document.getElementById('qrVideo');
+const qrCanvas = document.getElementById('qrCanvas');
+const qrCtx    = qrCanvas.getContext('2d');
+const startScanBtn = document.getElementById('startScan');
+const stopScanBtn  = document.getElementById('stopScan');
+const qrResult = document.getElementById('qrResult');
+
+let qrStream = null;
+let qrScanning = false;
+let qrRafId = null;
+
+async function startQrScan() {
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    qrVideo.srcObject = qrStream;
+    qrScanning = true;
+    qrResult.textContent = 'Scan en cours...';
+    startScanBtn.disabled = true;
+    stopScanBtn.disabled = false;
+    qrScanLoop();
+  } catch (err) {
+    qrResult.textContent = 'Erreur caméra: ' + err.message;
+  }
+}
+
+function stopQrScan() {
+  qrScanning = false;
+  if (qrRafId) {
+    cancelAnimationFrame(qrRafId);
+    qrRafId = null;
+  }
+  if (qrStream) {
+    qrVideo.srcObject = null;
+    qrStream.getTracks().forEach(t => t.stop());
+    qrStream = null;
+  }
+  startScanBtn.disabled = false;
+  stopScanBtn.disabled = true;
+}
+
+function qrScanLoop() {
+  if (!qrScanning) return;
+  if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA) {
+    qrCanvas.width  = qrVideo.videoWidth;
+    qrCanvas.height = qrVideo.videoHeight;
+    qrCtx.drawImage(qrVideo, 0, 0, qrCanvas.width, qrCanvas.height);
+    const imageData = qrCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    if (code) {
+      const data = code.data;
+      qrResult.textContent = 'QR: ' + data;
+      // Exemple: data = "WIFI:T:WPA;S:MonSSID;P:MotDePasse;;"
+      // ou data = "MonSSID;MonMotDePasse"
+      try {
+        handleQrData(data);
+      } catch(e) {
+        console.error(e);
+      }
+      stopQrScan();
+      return;
+    }
+  }
+  qrRafId = requestAnimationFrame(qrScanLoop);
+}
+
+function handleQrData(data) {
+  // 1) Cas format perso "SSID;PASS"
+  if (data.includes(';') && !data.startsWith('WIFI:')) {
+    const [ssid, pass] = data.split(';');
+    if (ssid) {
+      // on essaye de sélectionner le SSID si présent dans la liste
+      let found = false;
+      for (const opt of ssidSelect.options) {
+        if (opt.value === ssid) { opt.selected = true; found = true; break; }
+      }
+      if (!found) {
+        // éventuellement ajouter dynamiquement une option
+        const opt = document.createElement('option');
+        opt.value = ssid;
+        opt.textContent = ssid + ' (QR)';
+        ssidSelect.appendChild(opt);
+        opt.selected = true;
+      }
+    }
+    if (pass) {
+      document.getElementById('wifiPass').value = pass;
+    }
+    return;
+  }
+
+  // 2) Cas standard "Wi-Fi QR" type Android: WIFI:T:WPA;S:SSID;P:PASS;;
+  if (data.startsWith('WIFI:')) {
+    const parts = data.split(';');
+    let ssid = '', pass = '';
+    parts.forEach(p => {
+      if (p.startsWith('S:')) ssid = p.substring(2);
+      if (p.startsWith('P:')) pass = p.substring(2);
+    });
+    if (ssid) {
+      let found = false;
+      for (const opt of ssidSelect.options) {
+        if (opt.value === ssid) { opt.selected = true; found = true; break; }
+      }
+      if (!found) {
+        const opt = document.createElement('option');
+        opt.value = ssid;
+        opt.textContent = ssid + ' (QR)';
+        ssidSelect.appendChild(opt);
+        opt.selected = true;
+      }
+    }
+    if (pass) {
+      document.getElementById('wifiPass').value = pass;
+    }
+  }
+}
+
+startScanBtn.addEventListener('click', startQrScan);
+stopScanBtn.addEventListener('click', stopQrScan);
+  
 </script>
 </body>
 </html>
